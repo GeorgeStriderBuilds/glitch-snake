@@ -25,7 +25,7 @@ a{color:#00f0ff}
 <body>
 <main>
 <h1>Glitch Snake</h1>
-<p class="sub">Eat, grow, glitch. Arrow keys, swipe, or the pad below.</p>
+<p class="sub">Eat, grow, glitch. Walls wrap around. Arrow keys, swipe, or the pad below.</p>
 <div class="score"><span>Score: <span id="score">0</span></span><span>Best: <span id="best">0</span></span></div>
 <canvas id="game" width="400" height="400" aria-label="Glitch Snake game board"></canvas>
 <div>
@@ -44,6 +44,15 @@ const cv = document.getElementById('game');
 const ctx = cv.getContext('2d');
 const N = 20, CELL = 20;
 let snake, dir, nextDir, food, score, eaten, glitch, timer, running, paused;
+let themeIndex = 0;
+// Same original colours, just re-assigned on every bite: background, grid,
+// snake, food, and accent all rotate through these four arrangements.
+const themes = [
+  {bg:'#06121c', grid:'rgba(0,240,255,.12)', a:'#00f0ff', b:'#ff2e88', food:'#ff2e88', orb:'#ffe259', accent:'#00f0ff'},
+  {bg:'#12061c', grid:'rgba(255,46,136,.14)', a:'#ff2e88', b:'#00f0ff', food:'#00f0ff', orb:'#ffe259', accent:'#ff2e88'},
+  {bg:'#041a12', grid:'rgba(255,226,89,.12)', a:'#ffe259', b:'#00f0ff', food:'#ff2e88', orb:'#00f0ff', accent:'#ffe259'},
+  {bg:'#0d0d0d', grid:'rgba(234,252,255,.12)', a:'#eafcff', b:'#ff2e88', food:'#00f0ff', orb:'#ffe259', accent:'#eafcff'}
+];
 let best = 0;
 try { best = parseInt(localStorage.getItem('gs-best') || '0', 10) || 0; } catch (e) {}
 document.getElementById('best').textContent = best;
@@ -57,26 +66,28 @@ function placeFood() {
 function reset() {
   snake = [{x:10,y:10},{x:9,y:10},{x:8,y:10}];
   dir = {x:1,y:0}; nextDir = dir;
-  score = 0; eaten = 0; glitch = 0; paused = false;
+  score = 0; eaten = 0; glitch = 0; paused = false; themeIndex = 0;
   food = placeFood();
   document.getElementById('score').textContent = '0';
-  document.getElementById('msg').textContent = 'Press Start. Every 5th bite is a glitch orb, worth 5 points and a bigger burst.';
+  document.getElementById('msg').textContent = 'Press Start. Walls wrap around, and every bite changes the colours. Every 5th bite is a glitch orb, worth 5 points and a bigger burst.';
   draw();
 }
 function draw() {
-  ctx.fillStyle = '#06121c'; ctx.fillRect(0, 0, 400, 400);
-  ctx.strokeStyle = 'rgba(0,240,255,.12)';
+  const t = themes[themeIndex];
+  cv.style.borderColor = t.accent;
+  ctx.fillStyle = t.bg; ctx.fillRect(0, 0, 400, 400);
+  ctx.strokeStyle = t.grid;
   for (let i = 1; i < N; i++) {
     ctx.beginPath(); ctx.moveTo(i*CELL, 0); ctx.lineTo(i*CELL, 400); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, i*CELL); ctx.lineTo(400, i*CELL); ctx.stroke();
   }
-  // Food: magenta normally, gold for a glitch orb.
+  // Food: theme food colour normally, theme orb colour for a glitch orb.
   const orb = (eaten + 1) % 5 === 0;
-  ctx.fillStyle = orb ? '#ffe259' : '#ff2e88';
+  ctx.fillStyle = orb ? t.orb : t.food;
   ctx.fillRect(food.x*CELL+3, food.y*CELL+3, CELL-6, CELL-6);
-  // Snake, head brightest.
+  // Snake, head brightest, body alternating the theme's two colours.
   snake.forEach((s, i) => {
-    ctx.fillStyle = i === 0 ? '#ffffff' : (i % 2 ? '#00f0ff' : '#ff2e88');
+    ctx.fillStyle = i === 0 ? '#ffffff' : (i % 2 ? t.a : t.b);
     ctx.fillRect(s.x*CELL+1, s.y*CELL+1, CELL-2, CELL-2);
   });
   // Glitch burst: shift a few horizontal slices for a few frames after eating.
@@ -99,9 +110,15 @@ function draw() {
 function step() {
   if (!running || paused) return;
   dir = nextDir;
-  const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
-  if (head.x < 0 || head.y < 0 || head.x >= N || head.y >= N ||
-      snake.some(s => s.x === head.x && s.y === head.y)) {
+  // Walls wrap: going off one side appears on the other side.
+  const head = {
+    x: (snake[0].x + dir.x + N) % N,
+    y: (snake[0].y + dir.y + N) % N
+  };
+  const willEat = head.x === food.x && head.y === food.y;
+  // The tail cell frees up on a non-eating move, so it is not a collision then.
+  const body = willEat ? snake : snake.slice(0, -1);
+  if (body.some(s => s.x === head.x && s.y === head.y)) {
     running = false; clearInterval(timer);
     if (score > best) {
       best = score;
@@ -112,8 +129,9 @@ function step() {
     draw(); return;
   }
   snake.unshift(head);
-  if (head.x === food.x && head.y === food.y) {
+  if (willEat) {
     eaten++;
+    themeIndex = (themeIndex + 1) % themes.length;
     const orb = eaten % 5 === 0;
     score += orb ? 5 : 1;
     glitch = orb ? 14 : 7;
