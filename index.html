@@ -69,7 +69,7 @@ function placeFood() {
 }
 function placeBonusFoods() {
   const out = [];
-  while (out.length < 10) {
+  while (out.length < 3) {
     const f = { x: Math.floor(Math.random() * N), y: Math.floor(Math.random() * N) };
     if (snake.some(s => s.x === f.x && s.y === f.y)) continue;
     if (out.some(b => b.x === f.x && b.y === f.y)) continue;
@@ -84,7 +84,7 @@ function reset() {
   frenzy = false; bonusFoods = []; frenzyTick = 0; exploding = false;
   food = placeFood();
   document.getElementById('score').textContent = '0';
-  document.getElementById('msg').textContent = 'Press Start. Walls wrap around, and every bite changes the colours. Every 5th bite is a gold glitch orb, worth 5 points, and it starts frenzy mode with 10 gold squares to eat.';
+  document.getElementById('msg').textContent = 'Press Start. Walls wrap around, and every bite changes the colours. Every 5th bite is a gold glitch orb, worth 5 points, and it starts frenzy mode with 3 gold squares to eat.';
   draw();
 }
 function draw() {
@@ -100,7 +100,7 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(0, i*CELL); ctx.lineTo(400, i*CELL); ctx.stroke();
   }
   // Food: theme food colour normally, theme orb colour for a glitch orb.
-  // In frenzy, the single food is replaced by 10 gold bonus squares.
+  // In frenzy, the single food is replaced by 3 gold bonus squares.
   if (frenzy) {
     ctx.fillStyle = '#ffe259';
     bonusFoods.forEach(b => ctx.fillRect(b.x*CELL+3, b.y*CELL+3, CELL-6, CELL-6));
@@ -209,10 +209,10 @@ function step() {
     glitch = orb ? 14 : 7;
     document.getElementById('score').textContent = score;
     if (orb) {
-      // Frenzy mode: 10 random gold squares appear, and the background
-      // cycles colours on every move until all 10 are eaten.
+      // Frenzy mode: 3 random gold squares appear, and the background
+      // cycles colours on every move until all 3 are eaten.
       frenzy = true; frenzyTick = 0; bonusFoods = placeBonusFoods(); food = null;
-      document.getElementById('msg').textContent = 'Frenzy mode! Eat all 10 gold squares.';
+      document.getElementById('msg').textContent = 'Frenzy mode! Eat all 3 gold squares.';
     } else {
       document.getElementById('msg').textContent = 'Nice bite. Score ' + score + '.';
       food = placeFood();
