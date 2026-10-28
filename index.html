@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Glitch Snake — George &amp; Strider Builds</title>
+<meta name="description" content="A small browser Snake game with glitch bursts. No signup, no upload, high score saved on your device only.">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#04070d;color:#eafcff;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:24px 16px 40px;text-align:center}
+main{max-width:480px;margin:0 auto}
+h1{margin:0 0 4px;font-size:28px;text-shadow:0 0 14px #00f0ff}
+p.sub{color:#9fb8c8;margin:0 0 16px}
+.score{display:flex;justify-content:center;gap:24px;margin:0 0 12px;font-weight:700}
+canvas{display:block;width:min(92vw,440px);height:auto;aspect-ratio:1/1;margin:0 auto;background:#06121c;border:2px solid #00f0ff;border-radius:12px;box-shadow:0 0 24px rgba(0,240,255,.25);touch-action:none}
+button{background:#00f0ff;color:#04121c;border:0;border-radius:999px;padding:10px 18px;font-weight:700;font-size:16px;margin:12px 6px 0;cursor:pointer}
+button.secondary{background:transparent;color:#eafcff;border:1px solid #00f0ff}
+.pad{display:grid;grid-template-columns:repeat(3,64px);justify-content:center;gap:8px;margin:16px auto 0}
+.pad button{margin:0;padding:14px 0}
+.pad .empty{visibility:hidden}
+.note{color:#9fb8c8;font-size:14px;margin-top:16px}
+a{color:#00f0ff}
+</style>
+</head>
+<body>
+<main>
+<h1>Glitch Snake</h1>
+<p class="sub">Eat, grow, glitch. Arrow keys, swipe, or the pad below.</p>
+<div class="score"><span>Score: <span id="score">0</span></span><span>Best: <span id="best">0</span></span></div>
+<canvas id="game" width="400" height="400" aria-label="Glitch Snake game board"></canvas>
+<div>
+<button id="startBtn">Start</button>
+<button id="pauseBtn" class="secondary">Pause</button>
+</div>
+<div class="pad" aria-label="Direction pad">
+<span class="empty"></span><button data-dir="up" aria-label="Up">▲</button><span class="empty"></span>
+<button data-dir="left" aria-label="Left">◀</button><button data-dir="down" aria-label="Down">▼</button><button data-dir="right" aria-label="Right">▶</button>
+</div>
+<p class="note" id="msg">Press Start. Every 5th bite is a glitch orb, worth 5 points and a bigger burst.</p>
+<p class="note">A George &amp; Strider collab, built with Muse. No signup, no upload.</p>
+</main>
+<script>
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+const N = 20, CELL = 20;
+let snake, dir, nextDir, food, score, eaten, glitch, timer, running, paused;
+let best = 0;
+try { best = parseInt(localStorage.getItem('gs-best') || '0', 10) || 0; } catch (e) {}
+document.getElementById('best').textContent = best;
+
+function placeFood() {
+  while (true) {
+    const f = { x: Math.floor(Math.random() * N), y: Math.floor(Math.random() * N) };
+    if (!snake.some(s => s.x === f.x && s.y === f.y)) return f;
+  }
+}
+function reset() {
+  snake = [{x:10,y:10},{x:9,y:10},{x:8,y:10}];
+  dir = {x:1,y:0}; nextDir = dir;
+  score = 0; eaten = 0; glitch = 0; paused = false;
+  food = placeFood();
+  document.getElementById('score').textContent = '0';
+  document.getElementById('msg').textContent = 'Press Start. Every 5th bite is a glitch orb, worth 5 points and a bigger burst.';
+  draw();
+}
+function draw() {
+  ctx.fillStyle = '#06121c'; ctx.fillRect(0, 0, 400, 400);
+  ctx.strokeStyle = 'rgba(0,240,255,.12)';
+  for (let i = 1; i < N; i++) {
+    ctx.beginPath(); ctx.moveTo(i*CELL, 0); ctx.lineTo(i*CELL, 400); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i*CELL); ctx.lineTo(400, i*CELL); ctx.stroke();
+  }
+  // Food: magenta normally, gold for a glitch orb.
+  const orb = (eaten + 1) % 5 === 0;
+  ctx.fillStyle = orb ? '#ffe259' : '#ff2e88';
+  ctx.fillRect(food.x*CELL+3, food.y*CELL+3, CELL-6, CELL-6);
+  // Snake, head brightest.
+  snake.forEach((s, i) => {
+    ctx.fillStyle = i === 0 ? '#ffffff' : (i % 2 ? '#00f0ff' : '#ff2e88');
+    ctx.fillRect(s.x*CELL+1, s.y*CELL+1, CELL-2, CELL-2);
+  });
+  // Glitch burst: shift a few horizontal slices for a few frames after eating.
+  if (glitch > 0) {
+    for (let k = 0; k < 5; k++) {
+      const y = Math.floor(Math.random() * N) * CELL;
+      const dx = (Math.random() < .5 ? -1 : 1) * (4 + Math.floor(Math.random() * 14));
+      ctx.drawImage(cv, 0, y, 400, CELL, dx, y, 400, CELL);
+    }
+    glitch--;
+  }
+  if (!running) {
+    ctx.fillStyle = 'rgba(4,7,13,.72)'; ctx.fillRect(0, 0, 400, 400);
+    ctx.fillStyle = '#eafcff'; ctx.font = '700 24px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText(paused ? 'Paused' : (score > 0 ? 'Game over — score ' + score : 'Glitch Snake'), 200, 200);
+    ctx.font = '16px system-ui';
+    ctx.fillText('Press Start to play again', 200, 230);
+  }
+}
+function step() {
+  if (!running || paused) return;
+  dir = nextDir;
+  const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+  if (head.x < 0 || head.y < 0 || head.x >= N || head.y >= N ||
+      snake.some(s => s.x === head.x && s.y === head.y)) {
+    running = false; clearInterval(timer);
+    if (score > best) {
+      best = score;
+      try { localStorage.setItem('gs-best', String(best)); } catch (e) {}
+      document.getElementById('best').textContent = best;
+    }
+    document.getElementById('msg').textContent = 'Game over. Press Start to try again.';
+    draw(); return;
+  }
+  snake.unshift(head);
+  if (head.x === food.x && head.y === food.y) {
+    eaten++;
+    const orb = eaten % 5 === 0;
+    score += orb ? 5 : 1;
+    glitch = orb ? 14 : 7;
+    document.getElementById('score').textContent = score;
+    document.getElementById('msg').textContent = orb ? 'Glitch orb! +5 points.' : 'Nice bite. Score ' + score + '.';
+    food = placeFood();
+    clearInterval(timer);
+    timer = setInterval(step, Math.max(70, 150 - score * 3));
+  } else {
+    snake.pop();
+  }
+  draw();
+}
+function start() {
+  reset(); running = true; paused = false;
+  clearInterval(timer); timer = setInterval(step, 150);
+  document.getElementById('msg').textContent = 'Playing. Eat the pink squares, watch for the gold glitch orb.';
+  draw();
+}
+function setDir(x, y, name) {
+  // Never reverse straight back into yourself, even on a fast double-turn.
+  if (nextDir.x === -x && nextDir.y === -y) return;
+  nextDir = {x, y};
+}
+const dirs = { up: [0,-1], left: [-1,0], down: [0,1], right: [1,0] };
+document.querySelectorAll('.pad button').forEach(b => {
+  b.addEventListener('click', () => { const d = dirs[b.dataset.dir]; setDir(d[0], d[1]); });
+});
+document.getElementById('startBtn').addEventListener('click', start);
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  if (!running) return;
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? 'Resume' : 'Pause';
+  draw();
+});
+document.addEventListener('keydown', e => {
+  const k = { ArrowUp: [0,-1], ArrowDown: [0,1], ArrowLeft: [-1,0], ArrowRight: [1,0] }[e.key];
+  if (k) { e.preventDefault(); setDir(k[0], k[1]); }
+  if (e.key === ' ') { e.preventDefault(); if (!running) start(); }
+});
+// Swipe on the canvas.
+let sx = null, sy = null;
+cv.addEventListener('touchstart', e => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; }, {passive: true});
+cv.addEventListener('touchmove', e => {
+  if (sx === null) return;
+  e.preventDefault();
+  const t = e.touches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+  if (Math.abs(dx) < 24 && Math.abs(dy) < 24) return;
+  if (Math.abs(dx) > Math.abs(dy)) setDir(dx > 0 ? 1 : -1, 0); else setDir(0, dy > 0 ? 1 : -1);
+  sx = null; sy = null;
+}, {passive: false});
+reset();
+</script>
+</body>
+</html>
