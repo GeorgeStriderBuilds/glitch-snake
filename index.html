@@ -44,7 +44,7 @@ a{color:#00f0ff}
 const cv = document.getElementById('game');
 const ctx = cv.getContext('2d');
 const N = 20, CELL = 20;
-let snake, dir, nextDir, food, score, eaten, glitch, timer, running, paused;
+let snake, dir, dirQueue, food, score, eaten, glitch, timer, running, paused;
 let themeIndex = 0;
 // Same original colours, just re-assigned on every bite: background, grid,
 // snake, food, and accent all rotate through these four arrangements.
@@ -66,7 +66,7 @@ function placeFood() {
 }
 function reset() {
   snake = [{x:10,y:10},{x:9,y:10},{x:8,y:10}];
-  dir = {x:1,y:0}; nextDir = dir;
+  dir = {x:1,y:0}; dirQueue = [];
   score = 0; eaten = 0; glitch = 0; paused = false; themeIndex = 0;
   food = placeFood();
   document.getElementById('score').textContent = '0';
@@ -110,7 +110,7 @@ function draw() {
 }
 function step() {
   if (!running || paused) return;
-  dir = nextDir;
+  if (dirQueue.length) dir = dirQueue.shift();
   // Walls wrap: going off one side appears on the other side.
   const head = {
     x: (snake[0].x + dir.x + N) % N,
@@ -153,13 +153,19 @@ function start() {
   draw();
 }
 function setDir(x, y, name) {
-  // Never reverse straight back into yourself, even on a fast double-turn.
-  if (nextDir.x === -x && nextDir.y === -y) return;
-  nextDir = {x, y};
+  // Queue turns instead of overwriting one direction with the next.
+  // Before this fix, two fast turns in one tick collapsed into one:
+  // right, then up, then left became just left, straight back into the body.
+  // Now each turn is played in order, one per tick, up to 3 queued.
+  const last = dirQueue.length ? dirQueue[dirQueue.length - 1] : dir;
+  if (last.x === -x && last.y === -y) return;
+  if (last.x === x && last.y === y) return;
+  if (dirQueue.length < 3) dirQueue.push({x, y});
 }
 const dirs = { up: [0,-1], left: [-1,0], down: [0,1], right: [1,0] };
 document.querySelectorAll('.pad button').forEach(b => {
-  b.addEventListener('click', () => { const d = dirs[b.dataset.dir]; setDir(d[0], d[1]); });
+  // pointerdown, not click, so a thumb tap registers at touch time, not after.
+  b.addEventListener('pointerdown', e => { e.preventDefault(); const d = dirs[b.dataset.dir]; setDir(d[0], d[1]); });
 });
 document.getElementById('startBtn').addEventListener('click', start);
 document.getElementById('pauseBtn').addEventListener('click', () => {
