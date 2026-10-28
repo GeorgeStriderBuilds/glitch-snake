@@ -45,6 +45,8 @@ const cv = document.getElementById('game');
 const ctx = cv.getContext('2d');
 const N = 20, CELL = 20;
 let snake, dir, dirQueue, food, score, eaten, glitch, timer, running, paused;
+let frenzy = false, bonusFoods = [], frenzyTick = 0;
+let exploding = false, particles = [], explodeTimer = null, explodeFrame = 0;
 let themeIndex = 0;
 // Same original colours, just re-assigned on every bite: background, grid,
 // snake, food, and accent all rotate through these four arrangements.
@@ -61,19 +63,34 @@ document.getElementById('best').textContent = best;
 function placeFood() {
   while (true) {
     const f = { x: Math.floor(Math.random() * N), y: Math.floor(Math.random() * N) };
-    if (!snake.some(s => s.x === f.x && s.y === f.y)) return f;
+    if (!snake.some(s => s.x === f.x && s.y === f.y) &&
+        !bonusFoods.some(b => b.x === f.x && b.y === f.y)) return f;
   }
+}
+function placeBonusFoods() {
+  const out = [];
+  while (out.length < 10) {
+    const f = { x: Math.floor(Math.random() * N), y: Math.floor(Math.random() * N) };
+    if (snake.some(s => s.x === f.x && s.y === f.y)) continue;
+    if (out.some(b => b.x === f.x && b.y === f.y)) continue;
+    out.push(f);
+  }
+  return out;
 }
 function reset() {
   snake = [{x:10,y:10},{x:9,y:10},{x:8,y:10}];
   dir = {x:1,y:0}; dirQueue = [];
   score = 0; eaten = 0; glitch = 0; paused = false; themeIndex = 0;
+  frenzy = false; bonusFoods = []; frenzyTick = 0; exploding = false;
   food = placeFood();
   document.getElementById('score').textContent = '0';
-  document.getElementById('msg').textContent = 'Press Start. Walls wrap around, and every bite changes the colours. Every 5th bite is a glitch orb, worth 5 points and a bigger burst.';
+  document.getElementById('msg').textContent = 'Press Start. Walls wrap around, and every bite changes the colours. Every 5th bite is a gold glitch orb, worth 5 points, and it starts frenzy mode with 10 gold squares to eat.';
   draw();
 }
 function draw() {
+  // Frenzy mode: the background cycles through all four colour themes
+  // on every move, instead of changing only on a bite.
+  if (frenzy) themeIndex = frenzyTick % themes.length;
   const t = themes[themeIndex];
   cv.style.borderColor = t.accent;
   ctx.fillStyle = t.bg; ctx.fillRect(0, 0, 400, 400);
@@ -83,14 +100,29 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(0, i*CELL); ctx.lineTo(400, i*CELL); ctx.stroke();
   }
   // Food: theme food colour normally, theme orb colour for a glitch orb.
-  const orb = (eaten + 1) % 5 === 0;
-  ctx.fillStyle = orb ? t.orb : t.food;
-  ctx.fillRect(food.x*CELL+3, food.y*CELL+3, CELL-6, CELL-6);
+  // In frenzy, the single food is replaced by 10 gold bonus squares.
+  if (frenzy) {
+    ctx.fillStyle = '#ffe259';
+    bonusFoods.forEach(b => ctx.fillRect(b.x*CELL+3, b.y*CELL+3, CELL-6, CELL-6));
+  } else if (food) {
+    const orb = (eaten + 1) % 5 === 0;
+    ctx.fillStyle = orb ? t.orb : t.food;
+    ctx.fillRect(food.x*CELL+3, food.y*CELL+3, CELL-6, CELL-6);
+  }
   // Snake, head brightest, body alternating the theme's two colours.
-  snake.forEach((s, i) => {
-    ctx.fillStyle = i === 0 ? '#ffffff' : (i % 2 ? t.a : t.b);
-    ctx.fillRect(s.x*CELL+1, s.y*CELL+1, CELL-2, CELL-2);
-  });
+  // During the death explosion the snake is replaced by flying particles.
+  if (exploding) {
+    particles.forEach(p => {
+      ctx.fillStyle = p.color;
+      const size = Math.max(2, CELL - 2 - explodeFrame * 0.5);
+      ctx.fillRect(p.x - size/2, p.y - size/2, size, size);
+    });
+  } else {
+    snake.forEach((s, i) => {
+      ctx.fillStyle = i === 0 ? '#ffffff' : (i % 2 ? t.a : t.b);
+      ctx.fillRect(s.x*CELL+1, s.y*CELL+1, CELL-2, CELL-2);
+    });
+  }
   // Glitch burst: shift a few horizontal slices for a few frames after eating.
   if (glitch > 0) {
     for (let k = 0; k < 5; k++) {
@@ -100,7 +132,7 @@ function draw() {
     }
     glitch--;
   }
-  if (!running) {
+  if (!running && !exploding) {
     ctx.fillStyle = 'rgba(4,7,13,.72)'; ctx.fillRect(0, 0, 400, 400);
     ctx.fillStyle = '#eafcff'; ctx.font = '700 24px system-ui'; ctx.textAlign = 'center';
     ctx.fillText(paused ? 'Paused' : (score > 0 ? 'Game over — score ' + score : 'Glitch Snake'), 200, 200);
@@ -108,37 +140,83 @@ function draw() {
     ctx.fillText('Press Start to play again', 200, 230);
   }
 }
+function explode() {
+  running = false;
+  exploding = true; explodeFrame = 0;
+  const t = themes[themeIndex];
+  particles = snake.map((s, i) => ({
+    x: s.x*CELL + CELL/2, y: s.y*CELL + CELL/2,
+    vx: (Math.random() - 0.5) * 7, vy: (Math.random() - 0.5) * 7,
+    color: i === 0 ? '#ffffff' : (i % 2 ? t.a : t.b)
+  }));
+  document.getElementById('msg').textContent = 'Boom!';
+  clearInterval(explodeTimer);
+  explodeTimer = setInterval(() => {
+    explodeFrame++;
+    particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.15; });
+    glitch = 5;
+    draw();
+    if (explodeFrame >= 28) {
+      clearInterval(explodeTimer);
+      exploding = false; running = false;
+      if (score > best) {
+        best = score;
+        try { localStorage.setItem('gs-best', String(best)); } catch (e) {}
+        document.getElementById('best').textContent = best;
+      }
+      document.getElementById('msg').textContent = 'Game over. Press Start to try again.';
+      draw();
+    }
+  }, 40);
+}
 function step() {
-  if (!running || paused) return;
+  if (!running || paused || exploding) return;
+  if (frenzy) frenzyTick++;
   if (dirQueue.length) dir = dirQueue.shift();
   // Walls wrap: going off one side appears on the other side.
   const head = {
     x: (snake[0].x + dir.x + N) % N,
     y: (snake[0].y + dir.y + N) % N
   };
-  const willEat = head.x === food.x && head.y === food.y;
+  const bonusIndex = frenzy ? bonusFoods.findIndex(b => b.x === head.x && b.y === head.y) : -1;
+  const willEat = !frenzy && food && head.x === food.x && head.y === food.y;
+  const willGrow = willEat || bonusIndex >= 0;
   // The tail cell frees up on a non-eating move, so it is not a collision then.
-  const body = willEat ? snake : snake.slice(0, -1);
+  const body = willGrow ? snake : snake.slice(0, -1);
   if (body.some(s => s.x === head.x && s.y === head.y)) {
-    running = false; clearInterval(timer);
-    if (score > best) {
-      best = score;
-      try { localStorage.setItem('gs-best', String(best)); } catch (e) {}
-      document.getElementById('best').textContent = best;
-    }
-    document.getElementById('msg').textContent = 'Game over. Press Start to try again.';
-    draw(); return;
+    clearInterval(timer);
+    explode(); return;
   }
   snake.unshift(head);
-  if (willEat) {
+  if (bonusIndex >= 0) {
+    bonusFoods.splice(bonusIndex, 1);
+    score += 1; glitch = 7;
+    document.getElementById('score').textContent = score;
+    if (bonusFoods.length === 0) {
+      frenzy = false;
+      food = placeFood();
+      document.getElementById('msg').textContent = 'Frenzy cleared! Score ' + score + '.';
+    } else {
+      document.getElementById('msg').textContent = 'Frenzy! ' + bonusFoods.length + ' bonus squares left.';
+    }
+    clearInterval(timer);
+    timer = setInterval(step, Math.max(70, 150 - score * 3));
+  } else if (willEat) {
     eaten++;
     themeIndex = (themeIndex + 1) % themes.length;
     const orb = eaten % 5 === 0;
     score += orb ? 5 : 1;
     glitch = orb ? 14 : 7;
     document.getElementById('score').textContent = score;
-    document.getElementById('msg').textContent = orb ? 'Glitch orb! +5 points.' : 'Nice bite. Score ' + score + '.';
-    food = placeFood();
+    if (orb) {
+      // Frenzy mode: 10 random gold squares appear, and the background
+      // cycles colours on every move until all 10 are eaten.
+      frenzy = true; frenzyTick = 0; bonusFoods = placeBonusFoods(); food = null;
+      document.getElementById('msg').textContent = 'Frenzy mode! Eat all 10 gold squares.';
+    } else {
+      document.getElementById('msg').textContent = 'Nice bite. Score ' + score + '.';
+      food = placeFood();
+    }
     clearInterval(timer);
     timer = setInterval(step, Math.max(70, 150 - score * 3));
   } else {
@@ -148,7 +226,7 @@ function step() {
 }
 function start() {
   reset(); running = true; paused = false;
-  clearInterval(timer); timer = setInterval(step, 150);
+  clearInterval(timer); clearInterval(explodeTimer); timer = setInterval(step, 150);
   document.getElementById('msg').textContent = 'Playing. Eat the pink squares, watch for the gold glitch orb.';
   draw();
 }
